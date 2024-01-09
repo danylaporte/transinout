@@ -59,7 +59,7 @@ impl Plugin for ProgramChange {
         while let Some(event) = context.next_event() {
             let expected = self.params.snapshot();
 
-            if self.sent.as_ref().map_or(false, |s| s != &expected) {
+            if self.sent.as_ref().map_or(true, |s| s != &expected) {
                 let channel = expected.channel.saturating_sub(1).clamp(0, 15) as u8;
     
                 context.send_event(NoteEvent::MidiCC {
@@ -120,9 +120,9 @@ struct ProgramChangeParams {
 impl ProgramChangeParams {
     fn snapshot(&self) -> SendProgramChange {
         SendProgramChange {
+            msb: self.msb.value(),
             channel: self.channel.value(),
             pc: self.pc.value(),
-            msb: self.msb.value(),
             lsb: self.lsb.value(),
         }
     }
