@@ -121,7 +121,14 @@ struct TransInOutParams {
 impl Default for TransInOutParams {
     fn default() -> Self {
         Self {
-            song_id: IntParam::new("song id", 0, IntRange::Linear { min: 0, max: i32::MAX }),
+            song_id: IntParam::new(
+                "song id",
+                0,
+                IntRange::Linear {
+                    min: 0,
+                    max: i32::MAX,
+                },
+            ),
             invert: BoolParam::new("invert", false),
         }
     }

@@ -6,3 +6,7 @@
 
 [transinout]
 name = "Trans In Out"
+
+
+[program-change]
+name = "Program change"

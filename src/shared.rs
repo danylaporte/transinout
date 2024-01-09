@@ -38,7 +38,7 @@ fn spawn() {
         if let Some(d) =
             directories::UserDirs::new().and_then(|d| d.audio_dir().map(|p| p.to_path_buf()))
         {
-            let p = d.with_file_name("transinout.json");
+            let p = d.with_file_name("transinout.toml");
             let p2 = p.clone();
 
             if let Ok(mut watcher) = notify::recommended_watcher(move |r| {
@@ -61,12 +61,15 @@ fn load_transpose_file(path: &Path) -> Option<Vec<i8>> {
     toml::from_str(&text).ok()
 }
 
-fn find_or_add<'a>(vec: &mut Vec<Arc<Shared>>, id: i32) -> Arc<Shared> {
+fn find_or_add(vec: &mut Vec<Arc<Shared>>, id: i32) -> Arc<Shared> {
     if let Some(v) = vec.get(id as usize) {
         return v.clone();
     }
 
-    let shared = Arc::new(Shared { id, transpose: AtomicI8::new(0) });
+    let shared = Arc::new(Shared {
+        id,
+        transpose: AtomicI8::new(0),
+    });
 
     vec.push(shared.clone());
 
@@ -78,9 +81,14 @@ fn update_transpose(map: Vec<i8>) {
     let mut iter = map.into_iter().enumerate().take(i32::MAX as usize);
 
     for item in vec.iter_mut() {
-        item.transpose.store(iter.next().unwrap_or_default().1, Relaxed);
+        item.transpose
+            .store(iter.next().unwrap_or_default().1, Relaxed);
     }
 
-    vec.extend(iter.map(|(id, transpose)| Arc::new(Shared { id: id as i32, transpose: AtomicI8::new(transpose) })));
-
+    vec.extend(iter.map(|(id, transpose)| {
+        Arc::new(Shared {
+            id: id as i32,
+            transpose: AtomicI8::new(transpose),
+        })
+    }));
 }

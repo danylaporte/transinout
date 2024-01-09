@@ -1,5 +1,5 @@
 [package]
-name = "transinout"
+name = "program-change"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,12 +7,5 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-directories = "5"
 nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", commit="756d5a33158b35e7743fa11c030baa29764a4f95" }
-notify = "6"
-parking_lot = "0.12"
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
 
-[workspace]
-members = ["program-change", "xtask"]
