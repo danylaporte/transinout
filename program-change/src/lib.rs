@@ -1,5 +1,5 @@
 use nih_plug::prelude::*;
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 struct ProgramChange {
     params: Arc<ProgramChangeParams>,
@@ -94,12 +94,22 @@ impl Plugin for ProgramChange {
     }
 }
 
-#[derive(PartialEq)]
 struct SendProgramChange {
     pc: i32,
     lsb: i32,
     msb: i32,
     channel: i32,
+    time: Instant,
+}
+
+impl PartialEq for SendProgramChange {
+    fn eq(&self, other: &Self) -> bool {
+        self.pc != other.pc
+        || self.lsb != other.lsb
+        || self.msb != other.msb
+        || self.channel != other.channel
+        || (self.time - other.time).as_secs() >= 3
+    }
 }
 
 #[derive(Params)]
@@ -124,6 +134,7 @@ impl ProgramChangeParams {
             channel: self.channel.value(),
             pc: self.pc.value(),
             lsb: self.lsb.value(),
+            time: Instant::now(),
         }
     }
 }
