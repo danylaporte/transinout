@@ -3,14 +3,14 @@ use std::sync::Arc;
 
 struct ProgramChange {
     params: Arc<ProgramChangeParams>,
-    sent: bool,
+    sent: Option<SendProgramChange>,
 }
 
 impl Default for ProgramChange {
     fn default() -> Self {
         Self {
             params: Arc::new(ProgramChangeParams::default()),
-            sent: false,
+            sent: None,
         }
     }
 }
@@ -32,8 +32,8 @@ impl Plugin for ProgramChange {
     type SysExMessage = ();
     type BackgroundTask = ();
 
-    fn params(&self) -> Arc<dyn Params> {
-        self.params.clone()
+    fn deactivate(&mut self) {
+        self.sent = None;
     }
 
     fn initialize(
@@ -42,12 +42,12 @@ impl Plugin for ProgramChange {
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        self.sent = false;
+        self.sent = None;
         true
     }
 
-    fn deactivate(&mut self) {
-        self.sent = false;
+    fn params(&self) -> Arc<dyn Params> {
+        self.params.clone()
     }
 
     fn process(
@@ -56,36 +56,50 @@ impl Plugin for ProgramChange {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        if !self.sent {
-            self.sent = true;
-
-            let channel = self.params.channel.value().saturating_sub(1).clamp(0, 15) as u8;
-
-            context.send_event(NoteEvent::MidiCC {
-                timing: 0,
-                channel,
-                cc: 0,
-                value: self.params.msb.value().clamp(0, 127) as f32 / 127.0,
-            });
-            context.send_event(NoteEvent::MidiCC {
-                timing: 0,
-                channel,
-                cc: 32,
-                value: self.params.lsb.value().clamp(0, 127) as f32 / 127.0,
-            });
-            context.send_event(NoteEvent::MidiProgramChange {
-                timing: 0,
-                channel,
-                program: self.params.pc.value().clamp(1, 128) as u8 - 1,
-            });
-        }
-
         while let Some(event) = context.next_event() {
+            let expected = self.params.snapshot();
+
+            if self.sent.as_ref().map_or(false, |s| s != &expected) {
+                let channel = expected.channel.saturating_sub(1).clamp(0, 15) as u8;
+    
+                context.send_event(NoteEvent::MidiCC {
+                    timing: 0,
+                    channel,
+                    cc: 0,
+                    value: expected.msb.clamp(0, 127) as f32 / 127.0,
+                });
+                context.send_event(NoteEvent::MidiCC {
+                    timing: 0,
+                    channel,
+                    cc: 32,
+                    value: expected.lsb.clamp(0, 127) as f32 / 127.0,
+                });
+                context.send_event(NoteEvent::MidiProgramChange {
+                    timing: 0,
+                    channel,
+                    program: expected.pc.clamp(1, 128) as u8 - 1,
+                });
+                
+                self.sent = Some(expected);
+            }
+
             context.send_event(event);
         }
 
         ProcessStatus::Normal
     }
+
+    fn reset(&mut self) {
+        self.sent = None;
+    }
+}
+
+#[derive(PartialEq)]
+struct SendProgramChange {
+    pc: i32,
+    lsb: i32,
+    msb: i32,
+    channel: i32,
 }
 
 #[derive(Params)]
@@ -101,6 +115,17 @@ struct ProgramChangeParams {
 
     #[id = "lsb"]
     lsb: IntParam,
+}
+
+impl ProgramChangeParams {
+    fn snapshot(&self) -> SendProgramChange {
+        SendProgramChange {
+            channel: self.channel.value(),
+            pc: self.pc.value(),
+            msb: self.msb.value(),
+            lsb: self.lsb.value(),
+        }
+    }
 }
 
 impl Default for ProgramChangeParams {
