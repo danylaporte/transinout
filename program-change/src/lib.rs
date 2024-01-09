@@ -3,14 +3,14 @@ use std::{sync::Arc, time::Instant};
 
 struct ProgramChange {
     params: Arc<ProgramChangeParams>,
-    sent: Option<SendProgramChange>,
+    state: Option<State>,
 }
 
 impl Default for ProgramChange {
     fn default() -> Self {
         Self {
             params: Arc::new(ProgramChangeParams::default()),
-            sent: None,
+            state: None,
         }
     }
 }
@@ -33,7 +33,7 @@ impl Plugin for ProgramChange {
     type BackgroundTask = ();
 
     fn deactivate(&mut self) {
-        self.sent = None;
+        self.state = None;
     }
 
     fn initialize(
@@ -42,7 +42,7 @@ impl Plugin for ProgramChange {
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
-        self.sent = None;
+        self.state = None;
         true
     }
 
@@ -56,10 +56,14 @@ impl Plugin for ProgramChange {
         _aux: &mut AuxiliaryBuffers,
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
+
+        // resend program change every 4 secs.
+        self.state = self.state.take().filter(|s| s.time.elapsed().as_secs() < 4);
+
         while let Some(event) = context.next_event() {
             let expected = self.params.snapshot();
 
-            if self.sent.as_ref().map_or(true, |s| s != &expected) {
+            if self.state.as_ref().map_or(true, |s| s.sent != expected) {
                 let channel = expected.channel.saturating_sub(1).clamp(0, 15) as u8;
     
                 context.send_event(NoteEvent::MidiCC {
@@ -79,8 +83,8 @@ impl Plugin for ProgramChange {
                     channel,
                     program: expected.pc.clamp(1, 128) as u8 - 1,
                 });
-                
-                self.sent = Some(expected);
+
+                self.state = Some(State { sent: expected, time: Instant::now() });
             }
 
             context.send_event(event);
@@ -90,26 +94,21 @@ impl Plugin for ProgramChange {
     }
 
     fn reset(&mut self) {
-        self.sent = None;
+        self.state = None;
     }
 }
 
-struct SendProgramChange {
+#[derive(PartialEq)]
+struct SentProgramChange {
     pc: i32,
     lsb: i32,
     msb: i32,
     channel: i32,
-    time: Instant,
 }
 
-impl PartialEq for SendProgramChange {
-    fn eq(&self, other: &Self) -> bool {
-        self.pc != other.pc
-        || self.lsb != other.lsb
-        || self.msb != other.msb
-        || self.channel != other.channel
-        || (self.time - other.time).as_secs() >= 3
-    }
+struct State {
+    sent: SentProgramChange,
+    time: Instant,    
 }
 
 #[derive(Params)]
@@ -128,13 +127,12 @@ struct ProgramChangeParams {
 }
 
 impl ProgramChangeParams {
-    fn snapshot(&self) -> SendProgramChange {
-        SendProgramChange {
+    fn snapshot(&self) -> SentProgramChange {
+        SentProgramChange {
             msb: self.msb.value(),
             channel: self.channel.value(),
             pc: self.pc.value(),
             lsb: self.lsb.value(),
-            time: Instant::now(),
         }
     }
 }
