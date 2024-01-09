@@ -42,7 +42,12 @@ impl Plugin for ProgramChange {
         _buffer_config: &BufferConfig,
         _context: &mut impl InitContext<Self>,
     ) -> bool {
+        self.sent = false;
         true
+    }
+
+    fn deactivate(&mut self) {
+        self.sent = false;
     }
 
     fn process(
@@ -71,7 +76,7 @@ impl Plugin for ProgramChange {
             context.send_event(NoteEvent::MidiProgramChange {
                 timing: 0,
                 channel,
-                program: self.params.pc.value().clamp(1, 128) as u8,
+                program: self.params.pc.value().clamp(1, 128) as u8 - 1,
             });
         }
 
