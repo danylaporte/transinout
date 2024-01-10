@@ -44,17 +44,14 @@ impl Plugin for ProgramChange {
             context.send_event(match event {
                 NoteEvent::MidiCC {
                     timing,
-                    channel: _,
+                    channel,
                     cc: 03,
                     value,
                 } => NoteEvent::MidiProgramChange {
                     timing,
-                    channel: self.params.channel(),
+                    channel,
                     program: (value * 127.0) as u8,
                 },
-                NoteEvent::MidiCC { timing, channel: _, cc, value } => {
-                    NoteEvent::MidiCC { timing, channel: self.params.channel(), cc, value }   
-                }
                 e => e,
             });
         }
@@ -64,22 +61,11 @@ impl Plugin for ProgramChange {
 }
 
 #[derive(Params)]
-struct ProgramChangeParams {
-    #[id = "channel"]
-    channel: IntParam,
-}
-
-impl ProgramChangeParams {
-    fn channel(&self) -> u8 {
-        self.channel.value().clamp(1, 16) as u8 - 1
-    }
-}
+struct ProgramChangeParams {}
 
 impl Default for ProgramChangeParams {
     fn default() -> Self {
-        Self {
-            channel: IntParam::new("channel", 1, IntRange::Linear { min: 1, max: 16 }),
-        }
+        Self {}
     }
 }
 
