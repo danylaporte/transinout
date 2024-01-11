@@ -47,12 +47,10 @@ impl Plugin for ProgramChange {
         context: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
         if self.params.active.value() {
-            self.process_active(context);
+            self.process_active(context)
         } else {
-            self.process_inactive(context);
+            self.process_inactive(context)
         }
-
-        ProcessStatus::Normal
     }
 }
 
@@ -60,7 +58,7 @@ const MSB: u8 = 0;
 const LSB: u8 = 32;
 
 impl ProgramChange {
-    fn process_active(&mut self, context: &mut impl ProcessContext<Self>) {
+    fn process_active(&mut self, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
         let new = self.params.snapshot();
         let ch = new.ch;
 
@@ -96,7 +94,7 @@ impl ProgramChange {
         while let Some(event) = context.next_event() {
             match event {
                 // do not let program change / msb and lsb cc pass through
-                NoteEvent::MidiPitchBend { .. } | NoteEvent::MidiCC { cc: MSB | LSB, .. } => {}
+                NoteEvent::MidiProgramChange { .. } | NoteEvent::MidiCC { cc: MSB | LSB, .. } => {}
 
                 event @ NoteEvent::Choke { channel, note, .. }
                 | event @ NoteEvent::NoteOff { channel, note, .. }
@@ -109,7 +107,7 @@ impl ProgramChange {
 
                 event @ NoteEvent::MidiCC { channel, .. }
                 | event @ NoteEvent::MidiChannelPressure { channel, .. }
-                | event @ NoteEvent::MidiProgramChange { channel, .. }
+                | event @ NoteEvent::MidiPitchBend { channel, .. }
                 | event @ NoteEvent::PolyBrightness { channel, .. }
                 | event @ NoteEvent::PolyExpression { channel, .. }
                 | event @ NoteEvent::PolyPan { channel, .. }
@@ -135,53 +133,59 @@ impl ProgramChange {
                 e => context.send_event(e),
             }
         }
+
+        ProcessStatus::Normal
     }
 
-    fn process_inactive(&mut self, context: &mut impl ProcessContext<Self>) {
-        if self.notes_on != 0 {
-            let ch = self.last_active_ch;
+    fn process_inactive(&mut self, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
+        self.snapshot = None;
+        
+        if self.notes_on == 0 {
+            return ProcessStatus::Normal;
+        }
+        
+        let ch = self.last_active_ch;
 
-            while let Some(event) = context.next_event() {
-                match event {
-                    // do not let program change / msb and lsb cc pass through
-                    NoteEvent::MidiPitchBend { .. } | NoteEvent::MidiCC { cc: MSB | LSB, .. } => {}
+        while let Some(event) = context.next_event() {
+            match event {
+                // do not let program change / msb and lsb cc pass through
+                NoteEvent::MidiProgramChange { .. } | NoteEvent::MidiCC { cc: MSB | LSB, .. } => {}
 
-                    event @ NoteEvent::Choke { channel, note, .. }
-                    | event @ NoteEvent::NoteOff { channel, note, .. }
-                    | event @ NoteEvent::VoiceTerminated { channel, note, .. }
-                        if channel == ch =>
-                    {
-                        if self.is_note_on(note) {
-                            self.make_note_off(note);
-                            context.send_event(event);
+                event @ NoteEvent::Choke { channel, note, .. }
+                | event @ NoteEvent::NoteOff { channel, note, .. }
+                | event @ NoteEvent::VoiceTerminated { channel, note, .. }
+                    if channel == ch =>
+                {
+                    if self.is_note_on(note) {
+                        self.make_note_off(note);
+                        context.send_event(event);
 
-                            if self.notes_on == 0 {
-                                break;
-                            }
+                        if self.notes_on == 0 {
+                            return  ProcessStatus::Normal;
                         }
                     }
-
-                    event @ NoteEvent::MidiCC { channel, .. }
-                    | event @ NoteEvent::MidiChannelPressure { channel, .. }
-                    | event @ NoteEvent::MidiProgramChange { channel, .. }
-                    | event @ NoteEvent::PolyBrightness { channel, .. }
-                    | event @ NoteEvent::PolyExpression { channel, .. }
-                    | event @ NoteEvent::PolyPan { channel, .. }
-                    | event @ NoteEvent::PolyPressure { channel, .. }
-                    | event @ NoteEvent::PolyTuning { channel, .. }
-                    | event @ NoteEvent::PolyVibrato { channel, .. }
-                    | event @ NoteEvent::PolyVolume { channel, .. }
-                        if channel == ch =>
-                    {
-                        context.send_event(event);
-                    }
-
-                    _ => {}
                 }
+
+                event @ NoteEvent::MidiCC { channel, .. }
+                | event @ NoteEvent::MidiChannelPressure { channel, .. }
+                | event @ NoteEvent::MidiPitchBend { channel, .. }
+                | event @ NoteEvent::PolyBrightness { channel, .. }
+                | event @ NoteEvent::PolyExpression { channel, .. }
+                | event @ NoteEvent::PolyPan { channel, .. }
+                | event @ NoteEvent::PolyPressure { channel, .. }
+                | event @ NoteEvent::PolyTuning { channel, .. }
+                | event @ NoteEvent::PolyVibrato { channel, .. }
+                | event @ NoteEvent::PolyVolume { channel, .. }
+                    if channel == ch =>
+                {
+                    context.send_event(event);
+                }
+
+                _ => {}
             }
         }
 
-        self.snapshot = None;
+        ProcessStatus::KeepAlive
     }
 
     fn is_note_on(&mut self, note: u8) -> bool {
@@ -249,7 +253,7 @@ struct ParamsSnapshot {
 
 impl ClapPlugin for ProgramChange {
     const CLAP_ID: &'static str = "com.moist-plugins-gmbh.program-change";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Transpose before and after midi effect");
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("Send program change when toggle active, keep sound until note off.");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
