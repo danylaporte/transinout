@@ -56,6 +56,9 @@ impl Plugin for ProgramChange {
     }
 }
 
+const MSB: u8 = 0;
+const LSB: u8 = 32;
+
 impl ProgramChange {
     fn process_active(&mut self, context: &mut impl ProcessContext<Self>) {
         let new = self.params.snapshot();
@@ -70,17 +73,17 @@ impl ProgramChange {
             context.send_event(NoteEvent::MidiCC {
                 timing,
                 channel,
-                cc: 0,
+                cc: MSB,
                 value: new.msb as f32 / 127.0,
             });
 
             context.send_event(NoteEvent::MidiCC {
                 timing,
                 channel,
-                cc: 32,
+                cc: LSB,
                 value: new.lsb as f32 / 127.0,
             });
-            
+
             context.send_event(NoteEvent::MidiProgramChange {
                 timing: 1,
                 channel,
@@ -92,6 +95,9 @@ impl ProgramChange {
 
         while let Some(event) = context.next_event() {
             match event {
+                // do not let program change / msb and lsb cc pass through
+                NoteEvent::MidiPitchBend { .. } | NoteEvent::MidiCC { cc: MSB | LSB, .. } => {}
+
                 event @ NoteEvent::Choke { channel, note, .. }
                 | event @ NoteEvent::NoteOff { channel, note, .. }
                 | event @ NoteEvent::VoiceTerminated { channel, note, .. }
@@ -103,7 +109,6 @@ impl ProgramChange {
 
                 event @ NoteEvent::MidiCC { channel, .. }
                 | event @ NoteEvent::MidiChannelPressure { channel, .. }
-                | event @ NoteEvent::MidiPitchBend { channel, .. }
                 | event @ NoteEvent::MidiProgramChange { channel, .. }
                 | event @ NoteEvent::PolyBrightness { channel, .. }
                 | event @ NoteEvent::PolyExpression { channel, .. }
@@ -138,6 +143,9 @@ impl ProgramChange {
 
             while let Some(event) = context.next_event() {
                 match event {
+                    // do not let program change / msb and lsb cc pass through
+                    NoteEvent::MidiPitchBend { .. } | NoteEvent::MidiCC { cc: MSB | LSB, .. } => {}
+
                     event @ NoteEvent::Choke { channel, note, .. }
                     | event @ NoteEvent::NoteOff { channel, note, .. }
                     | event @ NoteEvent::VoiceTerminated { channel, note, .. }
@@ -155,7 +163,6 @@ impl ProgramChange {
 
                     event @ NoteEvent::MidiCC { channel, .. }
                     | event @ NoteEvent::MidiChannelPressure { channel, .. }
-                    | event @ NoteEvent::MidiPitchBend { channel, .. }
                     | event @ NoteEvent::MidiProgramChange { channel, .. }
                     | event @ NoteEvent::PolyBrightness { channel, .. }
                     | event @ NoteEvent::PolyExpression { channel, .. }
