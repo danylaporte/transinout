@@ -614,7 +614,7 @@ impl Default for ProgramChangeParams {
             msb: IntParam::new("msb", 0, IntRange::Linear { min: 0, max: 127 }),
             lsb: IntParam::new("lsb", 0, IntRange::Linear { min: 0, max: 127 }),
             pc: IntParam::new("pc", 0, IntRange::Linear { min: 0, max: 127 }),
-            vol: IntParam::new("vol", 127, IntRange::Linear { min: 0, max: 127 }),
+            vol: IntParam::new("vol", 100, IntRange::Linear { min: 0, max: 127 }),
         }
     }
 }
