@@ -56,9 +56,54 @@ impl Plugin for ProgramChange {
     }
 }
 
-const MSB: u8 = 0;
-const VOL: u8 = 7; // Volume Coarse
+const ATTACK: u8 = 80;
+const DECAY: u8 = 73;
 const LSB: u8 = 32;
+const MSB: u8 = 0;
+const RELEASE: u8 = 72;
+const VOL: u8 = 7; // Volume Coarse
+
+trait ContextExt<S>: ProcessContext<S>
+where
+    S: Plugin,
+{
+    /// Send Midi controller change event
+    fn cc(&mut self, timing: u32, channel: u8, cc: u8, value: u8) -> &mut Self {
+        self.send_event(NoteEvent::MidiCC {
+            timing,
+            channel,
+            cc,
+            value: value as f32 / 127.0,
+        });
+        self
+    }
+
+    fn choke(&mut self, timing: u32, voice_id: Option<i32>, channel: u8, note: u8) {
+        self.send_event(NoteEvent::Choke {
+            timing,
+            voice_id,
+            channel,
+            note,
+        });
+    }
+
+    /// Send Midi program change event
+    fn pc(&mut self, timing: u32, channel: u8, program: u8) -> &mut Self {
+        self.send_event(NoteEvent::MidiProgramChange {
+            timing,
+            channel,
+            program,
+        });
+        self
+    }
+}
+
+impl<S, T> ContextExt<S> for T
+where
+    S: Plugin,
+    T: ProcessContext<S>,
+{
+}
 
 impl ProgramChange {
     fn process_active(&mut self, context: &mut impl ProcessContext<Self>) {
@@ -68,35 +113,16 @@ impl ProgramChange {
         self.last_active_ch = channel;
 
         if self.snapshot.map_or(true, |old| old != new) {
-            let timing = 0;
             let channel = new.ch;
 
-            context.send_event(NoteEvent::MidiCC {
-                timing,
-                channel,
-                cc: VOL,
-                value: new.vol as f32 / 127.0,
-            });
-
-            context.send_event(NoteEvent::MidiCC {
-                timing,
-                channel,
-                cc: MSB,
-                value: new.msb as f32 / 127.0,
-            });
-
-            context.send_event(NoteEvent::MidiCC {
-                timing,
-                channel,
-                cc: LSB,
-                value: new.lsb as f32 / 127.0,
-            });
-
-            context.send_event(NoteEvent::MidiProgramChange {
-                timing: 1,
-                channel,
-                program: new.pc,
-            });
+            context
+                .cc(0, channel, MSB, new.msb)
+                .cc(0, channel, LSB, new.lsb)
+                .pc(1, channel, new.pc)
+                .cc(2, channel, ATTACK, new.attack)
+                .cc(2, channel, DECAY, new.decay)
+                .cc(2, channel, RELEASE, new.release)
+                .cc(2, channel, VOL, new.vol);
 
             self.snapshot = Some(new);
         }
@@ -124,7 +150,7 @@ impl ProgramChange {
                     cc,
                     value,
                 } => {
-                    if cc != MSB && cc != LSB && cc != VOL {
+                    if cc != MSB && cc != LSB {
                         context.send_event(NoteEvent::MidiCC {
                             timing,
                             channel,
@@ -362,7 +388,7 @@ impl ProgramChange {
                         cc,
                         value,
                     } => {
-                        if self.notes_on != 0 && (cc != MSB || cc != LSB || cc != VOL) {
+                        if self.notes_on != 0 && (cc != MSB || cc != LSB) {
                             context.send_event(NoteEvent::MidiCC {
                                 timing,
                                 channel,
@@ -590,8 +616,14 @@ struct ProgramChangeParams {
     #[id = "active"]
     active: BoolParam,
 
+    #[id = "attack"]
+    attack: IntParam,
+
     #[id = "channel"]
     ch: IntParam,
+
+    #[id = "decay"]
+    decay: IntParam,
 
     #[id = "lsb"]
     lsb: IntParam,
@@ -602,6 +634,9 @@ struct ProgramChangeParams {
     #[id = "pc"]
     pc: IntParam,
 
+    #[id = "release"]
+    release: IntParam,
+
     #[id = "vol"]
     vol: IntParam,
 }
@@ -610,10 +645,13 @@ impl Default for ProgramChangeParams {
     fn default() -> Self {
         Self {
             active: BoolParam::new("active", true),
+            attack: IntParam::new("attack", 64, IntRange::Linear { min: 0, max: 127 }),
             ch: IntParam::new("channel", 1, IntRange::Linear { min: 1, max: 16 }),
+            decay: IntParam::new("decay", 64, IntRange::Linear { min: 0, max: 127 }),
             msb: IntParam::new("msb", 0, IntRange::Linear { min: 0, max: 127 }),
             lsb: IntParam::new("lsb", 0, IntRange::Linear { min: 0, max: 127 }),
             pc: IntParam::new("pc", 0, IntRange::Linear { min: 0, max: 127 }),
+            release: IntParam::new("release", 64, IntRange::Linear { min: 0, max: 127 }),
             vol: IntParam::new("vol", 100, IntRange::Linear { min: 0, max: 127 }),
         }
     }
@@ -622,10 +660,13 @@ impl Default for ProgramChangeParams {
 impl ProgramChangeParams {
     fn snapshot(&self) -> ParamsSnapshot {
         ParamsSnapshot {
+            attack: self.attack.value().clamp(0, 127) as u8,
             ch: (self.ch.value().clamp(1, 16) - 1) as u8,
+            decay: self.decay.value().clamp(0, 127) as u8,
             msb: self.msb.value().clamp(0, 127) as u8,
             lsb: self.lsb.value().clamp(0, 127) as u8,
             pc: self.pc.value().clamp(0, 127) as u8,
+            release: self.release.value().clamp(0, 127) as u8,
             vol: self.vol.value().clamp(0, 127) as u8,
         }
     }
@@ -633,10 +674,13 @@ impl ProgramChangeParams {
 
 #[derive(Clone, Copy, PartialEq)]
 struct ParamsSnapshot {
+    attack: u8,
     ch: u8,
+    decay: u8,
     lsb: u8,
     msb: u8,
     pc: u8,
+    release: u8,
     vol: u8,
 }
 
