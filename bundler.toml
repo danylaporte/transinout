@@ -7,6 +7,8 @@
 [transinout]
 name = "Trans In Out"
 
+[midi-filter]
+name = "Midi filter"
 
 [program-change]
 name = "Program change"
