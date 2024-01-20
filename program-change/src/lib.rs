@@ -1,7 +1,9 @@
-use nih_plug::prelude::*;
+use nih_plug::{prelude::*, midi::control_change::{DAMPER_PEDAL, MAIN_VOLUME_MSB, ALL_NOTES_OFF, ALL_SOUND_OFF, SOUND_CONTROLLER_3, GENERAL_PURPOSE_CONTROLLER_5_MSB, SOUND_CONTROLLER_4, RESET_ALL_CONTROLLERS, BANK_SELECT_MSB, BANK_SELECT_LSB}};
 use std::sync::Arc;
 
 struct ProgramChange {
+    /// damper pedal active
+    damper: bool,
     last_active_ch: u8,
     notes_on: u128,
     params: Arc<ProgramChangeParams>,
@@ -11,6 +13,7 @@ struct ProgramChange {
 impl Default for ProgramChange {
     fn default() -> Self {
         Self {
+            damper: false,
             last_active_ch: 0,
             notes_on: 0,
             params: Arc::new(ProgramChangeParams::default()),
@@ -55,13 +58,6 @@ impl Plugin for ProgramChange {
         ProcessStatus::Normal
     }
 }
-
-const ATTACK: u8 = 80;
-const DECAY: u8 = 73;
-const LSB: u8 = 32;
-const MSB: u8 = 0;
-const RELEASE: u8 = 72;
-const VOL: u8 = 7; // Volume Coarse
 
 trait ContextExt<S>: ProcessContext<S>
 where
@@ -115,14 +111,23 @@ impl ProgramChange {
         if self.snapshot.map_or(true, |old| old != new) {
             let channel = new.ch;
 
+            self.damper = false;
+
             context
-                .cc(0, channel, MSB, new.msb)
-                .cc(0, channel, LSB, new.lsb)
+                .cc(0, channel, BANK_SELECT_MSB, new.msb)
+                .cc(0, channel, BANK_SELECT_LSB, new.lsb)
                 .pc(1, channel, new.pc)
-                .cc(2, channel, ATTACK, new.attack)
-                .cc(2, channel, DECAY, new.decay)
-                .cc(2, channel, RELEASE, new.release)
-                .cc(2, channel, VOL, new.vol);
+                .cc(2, channel, ALL_NOTES_OFF, 0)
+                .cc(2, channel, ALL_SOUND_OFF, 0)
+                .cc(2, channel, RESET_ALL_CONTROLLERS, 0)
+                .cc(3, channel, SOUND_CONTROLLER_4, new.attack)
+                .cc(3, channel, GENERAL_PURPOSE_CONTROLLER_5_MSB, new.decay)
+                .cc(3, channel, SOUND_CONTROLLER_3, new.release)
+                .cc(3, channel, MAIN_VOLUME_MSB, new.vol)
+                .cc(3, channel, DAMPER_PEDAL, 0);
+
+                
+            
 
             self.snapshot = Some(new);
         }
@@ -150,13 +155,17 @@ impl ProgramChange {
                     cc,
                     value,
                 } => {
-                    if cc != MSB && cc != LSB {
+                    if cc != BANK_SELECT_MSB && cc != BANK_SELECT_LSB {
                         context.send_event(NoteEvent::MidiCC {
                             timing,
                             channel,
                             cc,
                             value,
                         });
+
+                        if cc == DAMPER_PEDAL {
+                            self.damper = value >= 0.5;
+                        }
                     }
                 }
 
@@ -359,7 +368,7 @@ impl ProgramChange {
     fn process_inactive(&mut self, context: &mut impl ProcessContext<Self>) {
         self.snapshot = None;
 
-        if self.notes_on == 0 {
+        if !self.damper && self.notes_on == 0 {
             while context.next_event().is_some() {}
         } else {
             let channel = self.last_active_ch;
@@ -388,13 +397,24 @@ impl ProgramChange {
                         cc,
                         value,
                     } => {
-                        if self.notes_on != 0 && (cc != MSB || cc != LSB) {
-                            context.send_event(NoteEvent::MidiCC {
-                                timing,
-                                channel,
-                                cc,
-                                value,
-                            });
+                        if cc != BANK_SELECT_MSB || cc != BANK_SELECT_LSB {
+                            if cc == DAMPER_PEDAL && value < 0.5 && self.damper {
+                                self.damper = false;
+
+                                context.send_event(NoteEvent::MidiCC {
+                                    timing,
+                                    channel,
+                                    cc,
+                                    value,
+                                });     
+                            } else {
+                                context.send_event(NoteEvent::MidiCC {
+                                    timing,
+                                    channel,
+                                    cc,
+                                    value,
+                                });
+                            }
                         }
                     }
 
