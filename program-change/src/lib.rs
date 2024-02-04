@@ -1,4 +1,4 @@
-use nih_plug::{prelude::*, midi::control_change::{DAMPER_PEDAL, MAIN_VOLUME_MSB, ALL_NOTES_OFF, ALL_SOUND_OFF, SOUND_CONTROLLER_3, GENERAL_PURPOSE_CONTROLLER_5_MSB, SOUND_CONTROLLER_4, RESET_ALL_CONTROLLERS, BANK_SELECT_MSB, BANK_SELECT_LSB}};
+use nih_plug::{prelude::*, midi::control_change::{DAMPER_PEDAL, MAIN_VOLUME_MSB, SOUND_CONTROLLER_3, GENERAL_PURPOSE_CONTROLLER_5_MSB, SOUND_CONTROLLER_4, BANK_SELECT_MSB, BANK_SELECT_LSB}};
 use std::sync::Arc;
 
 struct ProgramChange {
@@ -117,9 +117,6 @@ impl ProgramChange {
                 .cc(0, channel, BANK_SELECT_MSB, new.msb)
                 .cc(0, channel, BANK_SELECT_LSB, new.lsb)
                 .pc(1, channel, new.pc)
-                .cc(2, channel, ALL_NOTES_OFF, 0)
-                .cc(2, channel, ALL_SOUND_OFF, 0)
-                .cc(2, channel, RESET_ALL_CONTROLLERS, 0)
                 .cc(3, channel, SOUND_CONTROLLER_4, new.attack)
                 .cc(3, channel, GENERAL_PURPOSE_CONTROLLER_5_MSB, new.decay)
                 .cc(3, channel, SOUND_CONTROLLER_3, new.release)
