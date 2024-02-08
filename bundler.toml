@@ -4,9 +4,6 @@
 # [package_name]
 # name = "Human Readable Plugin Name"  # defaults to <package_name>
 
-[transinout]
-name = "Trans In Out"
-
 [midi-filter]
 name = "Midi filter"
 

@@ -1,4 +1,10 @@
-use nih_plug::{prelude::*, midi::control_change::{DAMPER_PEDAL, MAIN_VOLUME_MSB, SOUND_CONTROLLER_3, GENERAL_PURPOSE_CONTROLLER_5_MSB, SOUND_CONTROLLER_4, BANK_SELECT_MSB, BANK_SELECT_LSB}};
+use nih_plug::{
+    midi::control_change::{
+        BANK_SELECT_LSB, BANK_SELECT_MSB, DAMPER_PEDAL, GENERAL_PURPOSE_CONTROLLER_5_MSB,
+        MAIN_VOLUME_MSB, SOUND_CONTROLLER_3, SOUND_CONTROLLER_4,
+    },
+    prelude::*,
+};
 use std::sync::Arc;
 
 struct ProgramChange {
@@ -39,6 +45,10 @@ impl Plugin for ProgramChange {
     type SysExMessage = ();
     type BackgroundTask = ();
 
+    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
+        None
+    }
+
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
     }
@@ -59,78 +69,23 @@ impl Plugin for ProgramChange {
     }
 }
 
-trait ContextExt<S>: ProcessContext<S>
-where
-    S: Plugin,
-{
-    /// Send Midi controller change event
-    fn cc(&mut self, timing: u32, channel: u8, cc: u8, value: u8) -> &mut Self {
-        self.send_event(NoteEvent::MidiCC {
-            timing,
-            channel,
-            cc,
-            value: value as f32 / 127.0,
-        });
-        self
-    }
-
-    fn choke(&mut self, timing: u32, voice_id: Option<i32>, channel: u8, note: u8) {
-        self.send_event(NoteEvent::Choke {
-            timing,
-            voice_id,
-            channel,
-            note,
-        });
-    }
-
-    /// Send Midi program change event
-    fn pc(&mut self, timing: u32, channel: u8, program: u8) -> &mut Self {
-        self.send_event(NoteEvent::MidiProgramChange {
-            timing,
-            channel,
-            program,
-        });
-        self
-    }
-}
-
-impl<S, T> ContextExt<S> for T
-where
-    S: Plugin,
-    T: ProcessContext<S>,
-{
-}
-
 impl ProgramChange {
     fn process_active(&mut self, context: &mut impl ProcessContext<Self>) {
-        let new = self.params.snapshot();
-        let channel = new.ch;
+        let new_snapshot = self.params.snapshot();
+        let channel = new_snapshot.ch;
 
         self.last_active_ch = channel;
 
-        if self.snapshot.map_or(true, |old| old != new) {
-            let channel = new.ch;
+        new_snapshot.send(self.snapshot.as_ref(), context);
 
-            self.damper = false;
-
-            context
-                .cc(0, channel, BANK_SELECT_MSB, new.msb)
-                .cc(0, channel, BANK_SELECT_LSB, new.lsb)
-                .pc(1, channel, new.pc)
-                .cc(3, channel, SOUND_CONTROLLER_4, new.attack)
-                .cc(3, channel, GENERAL_PURPOSE_CONTROLLER_5_MSB, new.decay)
-                .cc(3, channel, SOUND_CONTROLLER_3, new.release)
-                .cc(3, channel, MAIN_VOLUME_MSB, new.vol)
-                .cc(3, channel, DAMPER_PEDAL, 0);
-
-                
-            
-
-            self.snapshot = Some(new);
-        }
+        self.snapshot = Some(new_snapshot);
 
         while let Some(event) = context.next_event() {
             match event {
+                NoteEvent::MidiSysEx { timing: _, message } => {
+                    println!("message: {message:?}");
+                }
+
                 NoteEvent::Choke {
                     timing,
                     voice_id,
@@ -138,6 +93,8 @@ impl ProgramChange {
                     note,
                 } => {
                     self.make_note_off(note);
+                    self.damper = false;
+
                     context.send_event(NoteEvent::Choke {
                         timing,
                         voice_id,
@@ -151,8 +108,9 @@ impl ProgramChange {
                     channel: _,
                     cc,
                     value,
-                } => {
-                    if cc != BANK_SELECT_MSB && cc != BANK_SELECT_LSB {
+                } => match cc {
+                    BANK_SELECT_LSB | BANK_SELECT_MSB => {}
+                    _ => {
                         context.send_event(NoteEvent::MidiCC {
                             timing,
                             channel,
@@ -164,7 +122,7 @@ impl ProgramChange {
                             self.damper = value >= 0.5;
                         }
                     }
-                }
+                },
 
                 NoteEvent::MidiChannelPressure {
                     timing,
@@ -393,8 +351,9 @@ impl ProgramChange {
                         channel: _,
                         cc,
                         value,
-                    } => {
-                        if cc != BANK_SELECT_MSB || cc != BANK_SELECT_LSB {
+                    } => match cc {
+                        BANK_SELECT_LSB | BANK_SELECT_MSB => {}
+                        _ => {
                             if cc == DAMPER_PEDAL && value < 0.5 && self.damper {
                                 self.damper = false;
 
@@ -403,7 +362,7 @@ impl ProgramChange {
                                     channel,
                                     cc,
                                     value,
-                                });     
+                                });
                             } else {
                                 context.send_event(NoteEvent::MidiCC {
                                     timing,
@@ -413,7 +372,7 @@ impl ProgramChange {
                                 });
                             }
                         }
-                    }
+                    },
 
                     NoteEvent::MidiChannelPressure {
                         timing,
@@ -689,7 +648,6 @@ impl ProgramChangeParams {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
 struct ParamsSnapshot {
     attack: u8,
     ch: u8,
@@ -699,6 +657,58 @@ struct ParamsSnapshot {
     pc: u8,
     release: u8,
     vol: u8,
+}
+
+impl ParamsSnapshot {
+    fn create_cc(&self, timing: u32, cc: u8, value: u8) -> NoteEvent<()> {
+        NoteEvent::MidiCC {
+            timing,
+            channel: self.ch,
+            cc,
+            value: value as f32 / 127.0,
+        }
+    }
+
+    fn create_pc(&self) -> NoteEvent<()> {
+        NoteEvent::MidiProgramChange {
+            timing: 1,
+            channel: self.ch,
+            program: self.pc,
+        }
+    }
+
+    fn send(&self, old: Option<&ParamsSnapshot>, context: &mut impl ProcessContext<ProgramChange>) {
+        let old = old.filter(|old| old.ch == self.ch);
+
+        // we must handle bank select with program change
+        if old.map_or(true, |old| {
+            old.msb != self.msb || old.lsb != self.lsb || old.pc != self.pc
+        }) {
+            context.send_event(self.create_cc(0, BANK_SELECT_MSB, self.msb));
+            context.send_event(self.create_cc(0, BANK_SELECT_LSB, self.lsb));
+            context.send_event(self.create_pc());
+        }
+
+        if old.map_or(true, |old| old.attack != self.attack) {
+            context.send_event(self.create_cc(2, SOUND_CONTROLLER_4, self.attack));
+        }
+
+        if old.map_or(true, |old| old.decay != self.decay) {
+            context.send_event(self.create_cc(2, GENERAL_PURPOSE_CONTROLLER_5_MSB, self.decay));
+        }
+
+        if old.map_or(true, |old| old.release != self.release) {
+            context.send_event(self.create_cc(2, SOUND_CONTROLLER_3, self.release));
+        }
+
+        if old.map_or(true, |old| old.vol != self.vol) {
+            context.send_event(self.create_cc(2, MAIN_VOLUME_MSB, self.vol));
+        }
+
+        if old.is_none() {
+            context.send_event(self.create_cc(2, DAMPER_PEDAL, 0));
+        }
+    }
 }
 
 impl ClapPlugin for ProgramChange {
