@@ -82,10 +82,6 @@ impl ProgramChange {
 
         while let Some(event) = context.next_event() {
             match event {
-                NoteEvent::MidiSysEx { timing: _, message } => {
-                    println!("message: {message:?}");
-                }
-
                 NoteEvent::Choke {
                     timing,
                     voice_id,
@@ -93,7 +89,6 @@ impl ProgramChange {
                     note,
                 } => {
                     self.make_note_off(note);
-                    self.damper = false;
 
                     context.send_event(NoteEvent::Choke {
                         timing,
@@ -323,9 +318,7 @@ impl ProgramChange {
     fn process_inactive(&mut self, context: &mut impl ProcessContext<Self>) {
         self.snapshot = None;
 
-        if !self.damper && self.notes_on == 0 {
-            while context.next_event().is_some() {}
-        } else {
+        if self.damper || self.notes_on != 0 {
             let channel = self.last_active_ch;
 
             while let Some(event) = context.next_event() {
@@ -336,14 +329,14 @@ impl ProgramChange {
                         channel: _,
                         note,
                     } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::Choke {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                            });
-                        }
+                        self.make_note_off(note);
+
+                        context.send_event(NoteEvent::Choke {
+                            timing,
+                            voice_id,
+                            channel,
+                            note,
+                        });
                     }
 
                     NoteEvent::MidiCC {
@@ -363,46 +356,9 @@ impl ProgramChange {
                                     cc,
                                     value,
                                 });
-                            } else {
-                                context.send_event(NoteEvent::MidiCC {
-                                    timing,
-                                    channel,
-                                    cc,
-                                    value,
-                                });
                             }
                         }
                     },
-
-                    NoteEvent::MidiChannelPressure {
-                        timing,
-                        channel: _,
-                        pressure,
-                    } => {
-                        if self.notes_on != 0 {
-                            context.send_event(NoteEvent::MidiChannelPressure {
-                                timing,
-                                channel,
-                                pressure,
-                            });
-                        }
-                    }
-
-                    NoteEvent::MidiPitchBend {
-                        timing,
-                        channel: _,
-                        value,
-                    } => {
-                        if self.notes_on != 0 {
-                            context.send_event(NoteEvent::MidiPitchBend {
-                                timing,
-                                channel,
-                                value,
-                            });
-                        }
-                    }
-
-                    NoteEvent::MidiProgramChange { .. } => {}
 
                     NoteEvent::NoteOff {
                         timing,
@@ -419,148 +375,6 @@ impl ProgramChange {
                                 channel,
                                 note,
                                 velocity,
-                            });
-                        }
-                    }
-
-                    NoteEvent::PolyBrightness {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        brightness,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::PolyBrightness {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                                brightness,
-                            });
-                        }
-                    }
-
-                    NoteEvent::PolyExpression {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        expression,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::PolyExpression {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                                expression,
-                            });
-                        }
-                    }
-
-                    NoteEvent::PolyPan {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        pan,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::PolyPan {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                                pan,
-                            });
-                        }
-                    }
-
-                    NoteEvent::PolyPressure {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        pressure,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::PolyPressure {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                                pressure,
-                            });
-                        }
-                    }
-
-                    NoteEvent::PolyTuning {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        tuning,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::PolyTuning {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                                tuning,
-                            });
-                        }
-                    }
-
-                    NoteEvent::PolyVibrato {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        vibrato,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::PolyVibrato {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                                vibrato,
-                            });
-                        }
-                    }
-
-                    NoteEvent::PolyVolume {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        gain,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::PolyVolume {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
-                                gain,
-                            });
-                        }
-                    }
-
-                    NoteEvent::VoiceTerminated {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                    } => {
-                        if self.is_note_on(note) {
-                            context.send_event(NoteEvent::VoiceTerminated {
-                                timing,
-                                voice_id,
-                                channel,
-                                note,
                             });
                         }
                     }
