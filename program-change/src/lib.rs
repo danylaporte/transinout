@@ -5,25 +5,18 @@ use nih_plug::{
     },
     prelude::*,
 };
-use std::sync::Arc;
+use std::{mem::take, sync::Arc};
 
 struct ProgramChange {
-    /// damper pedal active
-    damper: bool,
-    last_active_ch: u8,
-    notes_on: u128,
+    state: InternalState,
     params: Arc<ProgramChangeParams>,
-    snapshot: Option<ParamsSnapshot>,
 }
 
 impl Default for ProgramChange {
     fn default() -> Self {
         Self {
-            damper: false,
-            last_active_ch: 0,
-            notes_on: 0,
             params: Arc::new(ProgramChangeParams::default()),
-            snapshot: None,
+            state: InternalState::Off,
         }
     }
 }
@@ -57,319 +50,124 @@ impl Plugin for ProgramChange {
         &mut self,
         _buffer: &mut Buffer,
         _aux: &mut AuxiliaryBuffers,
-        context: &mut impl ProcessContext<Self>,
+        ctx: &mut impl ProcessContext<Self>,
     ) -> ProcessStatus {
-        if self.params.active.value() {
-            self.process_active(context);
-        } else {
-            self.process_inactive(context);
-        }
+        const OFF: bool = false;
+        const ON: bool = true;
 
-        ProcessStatus::Normal
-    }
-}
+        self.state = match (take(&mut self.state), self.params.active.value()) {
+            (InternalState::Off, OFF) => InternalState::Off,
 
-impl ProgramChange {
-    fn process_active(&mut self, context: &mut impl ProcessContext<Self>) {
-        let new_snapshot = self.params.snapshot();
-        let channel = new_snapshot.ch;
+            (InternalState::Off, ON) => {
+                let snapshot = self.params.snapshot();
 
-        self.last_active_ch = channel;
+                snapshot.send(None, ctx);
 
-        new_snapshot.send(self.snapshot.as_ref(), context);
-
-        self.snapshot = Some(new_snapshot);
-
-        while let Some(event) = context.next_event() {
-            match event {
-                NoteEvent::Choke {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                } => {
-                    self.make_note_off(note);
-
-                    context.send_event(NoteEvent::Choke {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                    });
+                InternalState::On {
+                    notes: Default::default(),
+                    snapshot,
                 }
-
-                NoteEvent::MidiCC {
-                    timing,
-                    channel: _,
-                    cc,
-                    value,
-                } => match cc {
-                    BANK_SELECT_LSB | BANK_SELECT_MSB => {}
-                    _ => {
-                        context.send_event(NoteEvent::MidiCC {
-                            timing,
-                            channel,
-                            cc,
-                            value,
-                        });
-
-                        if cc == DAMPER_PEDAL {
-                            self.damper = value >= 0.5;
-                        }
-                    }
-                },
-
-                NoteEvent::MidiChannelPressure {
-                    timing,
-                    channel: _,
-                    pressure,
-                } => context.send_event(NoteEvent::MidiChannelPressure {
-                    timing,
-                    channel,
-                    pressure,
-                }),
-
-                NoteEvent::MidiPitchBend {
-                    timing,
-                    channel: _,
-                    value,
-                } => context.send_event(NoteEvent::MidiPitchBend {
-                    timing,
-                    channel,
-                    value,
-                }),
-
-                NoteEvent::MidiProgramChange { .. } => {}
-
-                NoteEvent::MonoAutomation {
-                    timing,
-                    poly_modulation_id,
-                    normalized_value,
-                } => context.send_event(NoteEvent::MonoAutomation {
-                    timing,
-                    poly_modulation_id,
-                    normalized_value,
-                }),
-
-                NoteEvent::NoteOff {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    velocity,
-                } => {
-                    self.make_note_off(note);
-                    context.send_event(NoteEvent::NoteOff {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
-                    });
-                }
-
-                NoteEvent::NoteOn {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    velocity,
-                } => {
-                    self.make_note_on(note);
-                    context.send_event(NoteEvent::NoteOn {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                        velocity,
-                    });
-                }
-
-                NoteEvent::PolyBrightness {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    brightness,
-                } => context.send_event(NoteEvent::PolyBrightness {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    brightness,
-                }),
-
-                NoteEvent::PolyExpression {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    expression,
-                } => context.send_event(NoteEvent::PolyExpression {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    expression,
-                }),
-
-                NoteEvent::PolyModulation {
-                    timing,
-                    voice_id,
-                    poly_modulation_id,
-                    normalized_offset,
-                } => context.send_event(NoteEvent::PolyModulation {
-                    timing,
-                    voice_id,
-                    poly_modulation_id,
-                    normalized_offset,
-                }),
-
-                NoteEvent::PolyPan {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    pan,
-                } => context.send_event(NoteEvent::PolyPan {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    pan,
-                }),
-
-                NoteEvent::PolyPressure {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    pressure,
-                } => context.send_event(NoteEvent::PolyPressure {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    pressure,
-                }),
-
-                NoteEvent::PolyTuning {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    tuning,
-                } => context.send_event(NoteEvent::PolyTuning {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    tuning,
-                }),
-
-                NoteEvent::PolyVibrato {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    vibrato,
-                } => context.send_event(NoteEvent::PolyVibrato {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    vibrato,
-                }),
-
-                NoteEvent::PolyVolume {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                    gain,
-                } => context.send_event(NoteEvent::PolyVolume {
-                    timing,
-                    voice_id,
-                    channel,
-                    note,
-                    gain,
-                }),
-
-                NoteEvent::VoiceTerminated {
-                    timing,
-                    voice_id,
-                    channel: _,
-                    note,
-                } => {
-                    self.make_note_off(note);
-                    context.send_event(NoteEvent::VoiceTerminated {
-                        timing,
-                        voice_id,
-                        channel,
-                        note,
-                    });
-                }
-
-                e => context.send_event(e),
             }
-        }
-    }
 
-    fn process_inactive(&mut self, context: &mut impl ProcessContext<Self>) {
-        self.snapshot = None;
+            (
+                InternalState::On {
+                    mut notes,
+                    snapshot,
+                }
+                | InternalState::SeamlessSwitch {
+                    mut notes,
+                    snapshot,
+                },
+                ON,
+            ) => {
+                let new = self.params.snapshot();
 
-        if self.damper || self.notes_on != 0 {
-            let channel = self.last_active_ch;
+                if new.ch != snapshot.ch {
+                    notes.send_all_note_off(snapshot.ch, ctx);
+                    new.send(None, ctx);
 
-            while let Some(event) = context.next_event() {
-                match event {
-                    NoteEvent::Choke {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                    } => {
-                        self.make_note_off(note);
+                    notes = Default::default();
+                }
 
-                        context.send_event(NoteEvent::Choke {
+                InternalState::On {
+                    notes,
+                    snapshot: new,
+                }
+            }
+
+            (
+                InternalState::On { notes, snapshot }
+                | InternalState::SeamlessSwitch { notes, snapshot },
+                OFF,
+            ) => {
+                if notes.is_all_off() {
+                    InternalState::Off
+                } else if self.params.channel() != snapshot.ch {
+                    notes.send_all_note_off(snapshot.ch, ctx);
+                    InternalState::Off
+                } else {
+                    InternalState::SeamlessSwitch { notes, snapshot }
+                }
+            }
+        };
+
+        match &mut self.state {
+            InternalState::Off => {}
+            InternalState::On { notes, snapshot } => {
+                let channel = snapshot.ch;
+
+                while let Some(event) = ctx.next_event() {
+                    match event {
+                        NoteEvent::Choke {
                             timing,
                             voice_id,
-                            channel,
                             note,
-                        });
-                    }
-
-                    NoteEvent::MidiCC {
-                        timing,
-                        channel: _,
-                        cc,
-                        value,
-                    } => match cc {
-                        BANK_SELECT_LSB | BANK_SELECT_MSB => {}
-                        _ => {
-                            if cc == DAMPER_PEDAL && value < 0.5 && self.damper {
-                                self.damper = false;
-
-                                context.send_event(NoteEvent::MidiCC {
-                                    timing,
-                                    channel,
-                                    cc,
-                                    value,
-                                });
-                            }
+                            ..
+                        } => {
+                            notes.set_off(note);
+                            ctx.send_event(NoteEvent::Choke {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                            });
                         }
-                    },
-
-                    NoteEvent::NoteOff {
-                        timing,
-                        voice_id,
-                        channel: _,
-                        note,
-                        velocity,
-                    } => {
-                        if self.is_note_on(note) {
-                            self.make_note_off(note);
-                            context.send_event(NoteEvent::NoteOff {
+                        NoteEvent::MidiCC {
+                            timing, cc, value, ..
+                        } => {
+                            ctx.send_event(NoteEvent::MidiCC {
+                                timing,
+                                cc,
+                                channel,
+                                value,
+                            });
+                        }
+                        NoteEvent::MidiChannelPressure {
+                            timing, pressure, ..
+                        } => {
+                            ctx.send_event(NoteEvent::MidiChannelPressure {
+                                timing,
+                                channel,
+                                pressure,
+                            });
+                        }
+                        NoteEvent::MidiPitchBend { timing, value, .. } => {
+                            ctx.send_event(NoteEvent::MidiPitchBend {
+                                timing,
+                                channel,
+                                value,
+                            });
+                        }
+                        NoteEvent::MidiProgramChange { .. } => {}
+                        NoteEvent::NoteOff {
+                            timing,
+                            voice_id,
+                            note,
+                            velocity,
+                            ..
+                        } => {
+                            notes.set_off(note);
+                            ctx.send_event(NoteEvent::NoteOff {
                                 timing,
                                 voice_id,
                                 channel,
@@ -377,32 +175,252 @@ impl ProgramChange {
                                 velocity,
                             });
                         }
+                        NoteEvent::NoteOn {
+                            timing,
+                            voice_id,
+                            note,
+                            velocity,
+                            ..
+                        } => {
+                            notes.set_on(note);
+                            ctx.send_event(NoteEvent::NoteOn {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                velocity,
+                            });
+                        }
+                        NoteEvent::PolyBrightness {
+                            timing,
+                            voice_id,
+                            note,
+                            brightness,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::PolyBrightness {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                brightness,
+                            });
+                        }
+                        NoteEvent::PolyExpression {
+                            timing,
+                            voice_id,
+                            note,
+                            expression,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::PolyExpression {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                expression,
+                            });
+                        }
+                        NoteEvent::PolyPan {
+                            timing,
+                            voice_id,
+                            note,
+                            pan,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::PolyPan {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                pan,
+                            });
+                        }
+                        NoteEvent::PolyPressure {
+                            timing,
+                            voice_id,
+                            note,
+                            pressure,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::PolyPressure {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                pressure,
+                            });
+                        }
+                        NoteEvent::PolyTuning {
+                            timing,
+                            voice_id,
+                            note,
+                            tuning,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::PolyTuning {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                tuning,
+                            });
+                        }
+                        NoteEvent::PolyVibrato {
+                            timing,
+                            voice_id,
+                            note,
+                            vibrato,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::PolyVibrato {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                vibrato,
+                            });
+                        }
+                        NoteEvent::PolyVolume {
+                            timing,
+                            voice_id,
+                            note,
+                            gain,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::PolyVolume {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                gain,
+                            });
+                        }
+                        NoteEvent::VoiceTerminated {
+                            timing,
+                            voice_id,
+                            note,
+                            ..
+                        } => {
+                            ctx.send_event(NoteEvent::VoiceTerminated {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                            });
+                        }
+                        event => ctx.send_event(event),
                     }
+                }
+            }
+            InternalState::SeamlessSwitch { notes, snapshot } => {
+                let channel = snapshot.ch;
 
-                    _ => {}
+                while let Some(event) = ctx.next_event() {
+                    match event {
+                        NoteEvent::Choke {
+                            timing,
+                            voice_id,
+                            note,
+                            ..
+                        } => {
+                            notes.set_off(note);
+                            ctx.send_event(NoteEvent::Choke {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                            });
+                        }
+                        NoteEvent::NoteOff {
+                            timing,
+                            voice_id,
+                            note,
+                            velocity,
+                            ..
+                        } => {
+                            notes.set_off(note);
+                            ctx.send_event(NoteEvent::NoteOff {
+                                timing,
+                                voice_id,
+                                channel,
+                                note,
+                                velocity,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        ProcessStatus::Normal
+    }
+}
+
+#[derive(Default)]
+struct NotesState(u128);
+
+impl NotesState {
+    fn is_all_off(&self) -> bool {
+        self.0 == 0
+    }
+
+    fn is_on(&self, note: u8) -> bool {
+        self.0 & note_mask(note) != 0
+    }
+
+    fn set_off(&mut self, note: u8) {
+        self.0 &= !note_mask(note);
+    }
+
+    fn set_on(&mut self, note: u8) {
+        self.0 |= note_mask(note);
+    }
+
+    fn send_all_note_off(&self, channel: u8, ctx: &mut impl ProcessContext<ProgramChange>) {
+        if self.0 != 0 {
+            for note in 0..127 {
+                if self.is_on(note) {
+                    // send midi message
+                    ctx.send_event(NoteEvent::NoteOff {
+                        timing: 0,
+                        voice_id: None,
+                        channel,
+                        note,
+                        velocity: 0.0,
+                    });
                 }
             }
         }
     }
+}
 
-    fn is_note_on(&mut self, note: u8) -> bool {
-        (self.notes_on & (1 << note)) != 0
-    }
+#[inline]
+fn note_mask(note: u8) -> u128 {
+    1 << note
+}
 
-    fn make_note_on(&mut self, note: u8) {
-        let mask = 1 << note;
-        self.notes_on |= mask;
-    }
+enum InternalState {
+    On {
+        notes: NotesState,
+        snapshot: ParamsSnapshot,
+    },
+    SeamlessSwitch {
+        notes: NotesState,
+        snapshot: ParamsSnapshot,
+    },
+    Off,
+}
 
-    fn make_note_off(&mut self, note: u8) {
-        let mask = 1 << note;
-        self.notes_on &= !mask;
+impl Default for InternalState {
+    fn default() -> Self {
+        Self::Off
     }
 }
 
 #[derive(Params)]
 struct ProgramChangeParams {
-    /// when active, the plugin will transmit midi notes, if inactive, only note ends will be transmited and then terminated.
     #[id = "active"]
     active: BoolParam,
 
@@ -434,24 +452,28 @@ struct ProgramChangeParams {
 impl Default for ProgramChangeParams {
     fn default() -> Self {
         Self {
-            active: BoolParam::new("active", true),
-            attack: IntParam::new("attack", 64, IntRange::Linear { min: 0, max: 127 }),
-            ch: IntParam::new("channel", 1, IntRange::Linear { min: 1, max: 16 }),
-            decay: IntParam::new("decay", 64, IntRange::Linear { min: 0, max: 127 }),
-            msb: IntParam::new("msb", 0, IntRange::Linear { min: 0, max: 127 }),
-            lsb: IntParam::new("lsb", 0, IntRange::Linear { min: 0, max: 127 }),
-            pc: IntParam::new("pc", 0, IntRange::Linear { min: 0, max: 127 }),
-            release: IntParam::new("release", 64, IntRange::Linear { min: 0, max: 127 }),
-            vol: IntParam::new("vol", 100, IntRange::Linear { min: 0, max: 127 }),
+            active: BoolParam::new("Active", true),
+            attack: IntParam::new("Attack", 64, IntRange::Linear { min: 0, max: 127 }),
+            ch: IntParam::new("Channel", 1, IntRange::Linear { min: 1, max: 16 }),
+            decay: IntParam::new("Decay", 64, IntRange::Linear { min: 0, max: 127 }),
+            msb: IntParam::new("Bank Select MSB", 0, IntRange::Linear { min: 0, max: 127 }),
+            lsb: IntParam::new("Bank Select LSB", 0, IntRange::Linear { min: 0, max: 127 }),
+            pc: IntParam::new("Program Change", 0, IntRange::Linear { min: 0, max: 127 }),
+            release: IntParam::new("Release", 64, IntRange::Linear { min: 0, max: 127 }),
+            vol: IntParam::new("Volume", 100, IntRange::Linear { min: 0, max: 127 }),
         }
     }
 }
 
 impl ProgramChangeParams {
+    fn channel(&self) -> u8 {
+        self.ch.value().clamp(1, 16) as u8 - 1
+    }
+
     fn snapshot(&self) -> ParamsSnapshot {
         ParamsSnapshot {
             attack: self.attack.value().clamp(0, 127) as u8,
-            ch: (self.ch.value().clamp(1, 16) - 1) as u8,
+            ch: self.channel(),
             decay: self.decay.value().clamp(0, 127) as u8,
             msb: self.msb.value().clamp(0, 127) as u8,
             lsb: self.lsb.value().clamp(0, 127) as u8,
