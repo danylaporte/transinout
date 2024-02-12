@@ -82,7 +82,9 @@ impl Plugin for ProgramChange {
             ) => {
                 let new = self.params.snapshot();
 
-                if new.ch != snapshot.ch {
+                if new.ch == snapshot.ch {
+                    new.send(Some(&snapshot), ctx);
+                } else {
                     notes.send_all_note_off(snapshot.ch, ctx);
                     new.send(None, ctx);
 
@@ -100,7 +102,9 @@ impl Plugin for ProgramChange {
                 | InternalState::SeamlessSwitch { notes, snapshot },
                 OFF,
             ) => {
-                if notes.is_all_off() {
+                damper_off(ctx, snapshot.ch);
+
+                if notes.is_all_off() {    
                     InternalState::Off
                 } else if self.params.channel() != snapshot.ch {
                     notes.send_all_note_off(snapshot.ch, ctx);
@@ -545,6 +549,16 @@ impl ParamsSnapshot {
             context.send_event(self.create_cc(2, DAMPER_PEDAL, 0));
         }
     }
+}
+
+fn damper_off(ctx: &mut impl ProcessContext<ProgramChange>, channel: u8) {
+    ctx.send_event(
+    NoteEvent::MidiCC {
+        timing: 0,
+        channel,
+        cc: DAMPER_PEDAL,
+        value: 0.0,
+    })
 }
 
 impl ClapPlugin for ProgramChange {
