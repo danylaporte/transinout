@@ -104,7 +104,7 @@ impl Plugin for ProgramChange {
             ) => {
                 damper_off(ctx, snapshot.ch);
 
-                if notes.is_all_off() {    
+                if notes.is_all_off() {
                     InternalState::Off
                 } else if self.params.channel() != snapshot.ch {
                     notes.send_all_note_off(snapshot.ch, ctx);
@@ -552,8 +552,7 @@ impl ParamsSnapshot {
 }
 
 fn damper_off(ctx: &mut impl ProcessContext<ProgramChange>, channel: u8) {
-    ctx.send_event(
-    NoteEvent::MidiCC {
+    ctx.send_event(NoteEvent::MidiCC {
         timing: 0,
         channel,
         cc: DAMPER_PEDAL,

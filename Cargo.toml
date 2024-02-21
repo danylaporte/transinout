@@ -1,4 +1,4 @@
 
 [workspace]
 resolver = "2"
-members = ["program-change", "midi-filter", "xtask"]
+members = ["program-change", "midi-filter", "single-note", "xtask"]
