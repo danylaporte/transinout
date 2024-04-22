@@ -1,6 +1,8 @@
 use nih_plug::{
     midi::control_change::{
-        BANK_SELECT_LSB, BANK_SELECT_MSB, DAMPER_PEDAL, EXPRESSION_CONTROLLER_MSB, GENERAL_PURPOSE_CONTROLLER_5_MSB, MAIN_VOLUME_MSB, MODULATION_MSB, SOUND_CONTROLLER_3, SOUND_CONTROLLER_4
+        BANK_SELECT_LSB, BANK_SELECT_MSB, DAMPER_PEDAL, EXPRESSION_CONTROLLER_MSB,
+        GENERAL_PURPOSE_CONTROLLER_5_MSB, MAIN_VOLUME_MSB, MODULATION_MSB, SOUND_CONTROLLER_2,
+        SOUND_CONTROLLER_3, SOUND_CONTROLLER_4, SOUND_CONTROLLER_5,
     },
     prelude::*,
 };
@@ -433,6 +435,9 @@ struct ProgramChangeParams {
     #[id = "channel"]
     ch: IntParam,
 
+    #[id = "cutoff"]
+    cutoff: IntParam,
+
     #[id = "decay"]
     decay: IntParam,
 
@@ -454,6 +459,9 @@ struct ProgramChangeParams {
     #[id = "release"]
     release: IntParam,
 
+    #[id = "resonance"]
+    resonance: IntParam,
+
     #[id = "vol"]
     vol: IntParam,
 }
@@ -464,13 +472,15 @@ impl Default for ProgramChangeParams {
             active: BoolParam::new("Active", true),
             attack: IntParam::new("Attack", 64, IntRange::Linear { min: 0, max: 127 }),
             ch: IntParam::new("Channel", 1, IntRange::Linear { min: 1, max: 16 }),
+            cutoff: IntParam::new("Cutoff", 64, IntRange::Linear { min: 0, max: 127 }),
             decay: IntParam::new("Decay", 64, IntRange::Linear { min: 0, max: 127 }),
             expr: IntParam::new("Expresion", 127, IntRange::Linear { min: 0, max: 127 }),
+            lsb: IntParam::new("Bank Select LSB", 0, IntRange::Linear { min: 0, max: 127 }),
             msb: IntParam::new("Bank Select MSB", 0, IntRange::Linear { min: 0, max: 127 }),
             mw: IntParam::new("Mod Wheel", 0, IntRange::Linear { min: 0, max: 127 }),
-            lsb: IntParam::new("Bank Select LSB", 0, IntRange::Linear { min: 0, max: 127 }),
             pc: IntParam::new("Program Change", 0, IntRange::Linear { min: 0, max: 127 }),
             release: IntParam::new("Release", 64, IntRange::Linear { min: 0, max: 127 }),
+            resonance: IntParam::new("Resonance", 64, IntRange::Linear { min: 0, max: 127 }),
             vol: IntParam::new("Volume", 100, IntRange::Linear { min: 0, max: 127 }),
         }
     }
@@ -485,13 +495,15 @@ impl ProgramChangeParams {
         ParamsSnapshot {
             attack: self.attack.value().clamp(0, 127) as u8,
             ch: self.channel(),
+            cutoff: self.cutoff.value().clamp(0, 127) as u8,
             decay: self.decay.value().clamp(0, 127) as u8,
             expr: self.expr.value().clamp(0, 127) as u8,
+            lsb: self.lsb.value().clamp(0, 127) as u8,
             msb: self.msb.value().clamp(0, 127) as u8,
             mw: self.mw.value().clamp(0, 127) as u8,
-            lsb: self.lsb.value().clamp(0, 127) as u8,
             pc: self.pc.value().clamp(0, 127) as u8,
             release: self.release.value().clamp(0, 127) as u8,
+            resonance: self.resonance.value().clamp(0, 127) as u8,
             vol: self.vol.value().clamp(0, 127) as u8,
         }
     }
@@ -500,6 +512,7 @@ impl ProgramChangeParams {
 struct ParamsSnapshot {
     attack: u8,
     ch: u8,
+    cutoff: u8,
     decay: u8,
     expr: u8,
     lsb: u8,
@@ -507,6 +520,7 @@ struct ParamsSnapshot {
     mw: u8,
     pc: u8,
     release: u8,
+    resonance: u8,
     vol: u8,
 }
 
@@ -544,12 +558,16 @@ impl ParamsSnapshot {
             context.send_event(self.create_cc(2, SOUND_CONTROLLER_4, self.attack));
         }
 
-        if old.map_or(true, |old| old.expr != self.expr) {
-            context.send_event(self.create_cc(2, EXPRESSION_CONTROLLER_MSB, self.expr));
+        if old.map_or(true, |old| old.cutoff != self.cutoff) {
+            context.send_event(self.create_cc(2, SOUND_CONTROLLER_5, self.cutoff));
         }
 
         if old.map_or(true, |old| old.decay != self.decay) {
             context.send_event(self.create_cc(2, GENERAL_PURPOSE_CONTROLLER_5_MSB, self.decay));
+        }
+
+        if old.map_or(true, |old| old.expr != self.expr) {
+            context.send_event(self.create_cc(2, EXPRESSION_CONTROLLER_MSB, self.expr));
         }
 
         if old.map_or(true, |old| old.mw != self.mw) {
@@ -558,6 +576,10 @@ impl ParamsSnapshot {
 
         if old.map_or(true, |old| old.release != self.release) {
             context.send_event(self.create_cc(2, SOUND_CONTROLLER_3, self.release));
+        }
+
+        if old.map_or(true, |old| old.resonance != self.resonance) {
+            context.send_event(self.create_cc(2, SOUND_CONTROLLER_2, self.resonance));
         }
 
         if old.map_or(true, |old| old.vol != self.vol) {
