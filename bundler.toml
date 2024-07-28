@@ -10,5 +10,8 @@ name = "Midi filter"
 [program-change]
 name = "Program change"
 
+[seemless-switch]
+name = "Seemless switch"
+
 [single-note]
 name = "Single note"

@@ -1,29 +1,25 @@
 use nih_plug::{
-    midi::control_change::{
-        BANK_SELECT_LSB, BANK_SELECT_MSB, DAMPER_PEDAL, EXPRESSION_CONTROLLER_MSB,
-        GENERAL_PURPOSE_CONTROLLER_5_MSB, MAIN_VOLUME_MSB, MODULATION_MSB, SOUND_CONTROLLER_2,
-        SOUND_CONTROLLER_3, SOUND_CONTROLLER_4, SOUND_CONTROLLER_5,
-    },
+    midi::control_change::{DAMPER_PEDAL, EXPRESSION_CONTROLLER_MSB, MODULATION_MSB},
     prelude::*,
 };
 use std::{mem::take, sync::Arc};
 
-struct ProgramChange {
+struct SeemlessSwitch {
     state: InternalState,
-    params: Arc<ProgramChangeParams>,
+    params: Arc<SeemlessSwitchParams>,
 }
 
-impl Default for ProgramChange {
+impl Default for SeemlessSwitch {
     fn default() -> Self {
         Self {
-            params: Arc::new(ProgramChangeParams::default()),
+            params: Arc::new(SeemlessSwitchParams::default()),
             state: InternalState::Off,
         }
     }
 }
 
-impl Plugin for ProgramChange {
-    const NAME: &'static str = "Program Change";
+impl Plugin for SeemlessSwitch {
+    const NAME: &'static str = "Seemless Switch";
     const VENDOR: &'static str = "Dany Laporte";
     const URL: &'static str = "";
     const EMAIL: &'static str = "";
@@ -71,26 +67,13 @@ impl Plugin for ProgramChange {
             }
 
             (
-                InternalState::On {
-                    mut notes,
-                    snapshot,
-                }
-                | InternalState::SeamlessSwitch {
-                    mut notes,
-                    snapshot,
-                },
+                InternalState::On { notes, snapshot }
+                | InternalState::SeamlessSwitch { notes, snapshot },
                 ON,
             ) => {
                 let new = self.params.snapshot();
 
-                if new.ch == snapshot.ch {
-                    new.send(Some(&snapshot), ctx);
-                } else {
-                    notes.send_all_note_off(snapshot.ch, ctx);
-                    new.send(None, ctx);
-
-                    notes = Default::default();
-                }
+                new.send(Some(&snapshot), ctx);
 
                 InternalState::On {
                     notes,
@@ -103,12 +86,9 @@ impl Plugin for ProgramChange {
                 | InternalState::SeamlessSwitch { notes, snapshot },
                 OFF,
             ) => {
-                damper_off(ctx, snapshot.ch);
+                damper_off(ctx);
 
                 if notes.is_all_off() {
-                    InternalState::Off
-                } else if self.params.channel() != snapshot.ch {
-                    notes.send_all_note_off(snapshot.ch, ctx);
                     InternalState::Off
                 } else {
                     InternalState::SeamlessSwitch { notes, snapshot }
@@ -118,9 +98,7 @@ impl Plugin for ProgramChange {
 
         match &mut self.state {
             InternalState::Off => {}
-            InternalState::On { notes, snapshot } => {
-                let channel = snapshot.ch;
-
+            InternalState::On { notes, .. } => {
                 while let Some(event) = ctx.next_event() {
                     match event {
                         NoteEvent::Choke {
@@ -133,7 +111,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::Choke {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                             });
                         }
@@ -143,7 +121,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::MidiCC {
                                 timing,
                                 cc,
-                                channel,
+                                channel: 0,
                                 value,
                             });
                         }
@@ -152,14 +130,14 @@ impl Plugin for ProgramChange {
                         } => {
                             ctx.send_event(NoteEvent::MidiChannelPressure {
                                 timing,
-                                channel,
+                                channel: 0,
                                 pressure,
                             });
                         }
                         NoteEvent::MidiPitchBend { timing, value, .. } => {
                             ctx.send_event(NoteEvent::MidiPitchBend {
                                 timing,
-                                channel,
+                                channel: 0,
                                 value,
                             });
                         }
@@ -175,7 +153,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::NoteOff {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 velocity,
                             });
@@ -191,7 +169,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::NoteOn {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 velocity,
                             });
@@ -206,7 +184,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::PolyBrightness {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 brightness,
                             });
@@ -221,7 +199,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::PolyExpression {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 expression,
                             });
@@ -236,7 +214,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::PolyPan {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 pan,
                             });
@@ -251,7 +229,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::PolyPressure {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 pressure,
                             });
@@ -266,7 +244,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::PolyTuning {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 tuning,
                             });
@@ -281,7 +259,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::PolyVibrato {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 vibrato,
                             });
@@ -296,7 +274,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::PolyVolume {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 gain,
                             });
@@ -310,7 +288,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::VoiceTerminated {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                             });
                         }
@@ -318,9 +296,7 @@ impl Plugin for ProgramChange {
                     }
                 }
             }
-            InternalState::SeamlessSwitch { notes, snapshot } => {
-                let channel = snapshot.ch;
-
+            InternalState::SeamlessSwitch { notes, .. } => {
                 while let Some(event) = ctx.next_event() {
                     match event {
                         NoteEvent::Choke {
@@ -333,7 +309,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::Choke {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                             });
                         }
@@ -348,7 +324,7 @@ impl Plugin for ProgramChange {
                             ctx.send_event(NoteEvent::NoteOff {
                                 timing,
                                 voice_id,
-                                channel,
+                                channel: 0,
                                 note,
                                 velocity,
                             });
@@ -371,33 +347,12 @@ impl NotesState {
         self.0 == 0
     }
 
-    fn is_on(&self, note: u8) -> bool {
-        self.0 & note_mask(note) != 0
-    }
-
     fn set_off(&mut self, note: u8) {
         self.0 &= !note_mask(note);
     }
 
     fn set_on(&mut self, note: u8) {
         self.0 |= note_mask(note);
-    }
-
-    fn send_all_note_off(&self, channel: u8, ctx: &mut impl ProcessContext<ProgramChange>) {
-        if self.0 != 0 {
-            for note in 0..127 {
-                if self.is_on(note) {
-                    // send midi message
-                    ctx.send_event(NoteEvent::NoteOff {
-                        timing: 0,
-                        voice_id: None,
-                        channel,
-                        note,
-                        velocity: 0.0,
-                    });
-                }
-            }
-        }
     }
 }
 
@@ -425,147 +380,56 @@ impl Default for InternalState {
 }
 
 #[derive(Params)]
-struct ProgramChangeParams {
+struct SeemlessSwitchParams {
     #[id = "active"]
     active: BoolParam,
-
-    #[id = "attack"]
-    attack: IntParam,
-
-    #[id = "channel"]
-    ch: IntParam,
-
-    #[id = "cutoff"]
-    cutoff: IntParam,
-
-    #[id = "decay"]
-    decay: IntParam,
 
     #[id = "expr"]
     expr: IntParam,
 
-    #[id = "lsb"]
-    lsb: IntParam,
-
-    #[id = "msb"]
-    msb: IntParam,
-
     #[id = "mw"]
     mw: IntParam,
-
-    #[id = "pc"]
-    pc: IntParam,
-
-    #[id = "release"]
-    release: IntParam,
-
-    #[id = "resonance"]
-    resonance: IntParam,
-
-    #[id = "vol"]
-    vol: IntParam,
 }
 
-impl Default for ProgramChangeParams {
+impl Default for SeemlessSwitchParams {
     fn default() -> Self {
         Self {
             active: BoolParam::new("Active", true),
-            attack: IntParam::new("Attack", 64, IntRange::Linear { min: 0, max: 127 }),
-            ch: IntParam::new("Channel", 1, IntRange::Linear { min: 1, max: 16 }),
-            cutoff: IntParam::new("Cutoff", 64, IntRange::Linear { min: 0, max: 127 }),
-            decay: IntParam::new("Decay", 64, IntRange::Linear { min: 0, max: 127 }),
             expr: IntParam::new("Expresion", 127, IntRange::Linear { min: 0, max: 127 }),
-            lsb: IntParam::new("Bank Select LSB", 0, IntRange::Linear { min: 0, max: 127 }),
-            msb: IntParam::new("Bank Select MSB", 0, IntRange::Linear { min: 0, max: 127 }),
             mw: IntParam::new("Mod Wheel", 0, IntRange::Linear { min: 0, max: 127 }),
-            pc: IntParam::new("Program Change", 0, IntRange::Linear { min: 0, max: 127 }),
-            release: IntParam::new("Release", 64, IntRange::Linear { min: 0, max: 127 }),
-            resonance: IntParam::new("Resonance", 64, IntRange::Linear { min: 0, max: 127 }),
-            vol: IntParam::new("Volume", 100, IntRange::Linear { min: 0, max: 127 }),
         }
     }
 }
 
-impl ProgramChangeParams {
-    fn channel(&self) -> u8 {
-        self.ch.value().clamp(1, 16) as u8 - 1
-    }
-
+impl SeemlessSwitchParams {
     fn snapshot(&self) -> ParamsSnapshot {
         ParamsSnapshot {
-            attack: self.attack.value().clamp(0, 127) as u8,
-            ch: self.channel(),
-            cutoff: self.cutoff.value().clamp(0, 127) as u8,
-            decay: self.decay.value().clamp(0, 127) as u8,
             expr: self.expr.value().clamp(0, 127) as u8,
-            lsb: self.lsb.value().clamp(0, 127) as u8,
-            msb: self.msb.value().clamp(0, 127) as u8,
             mw: self.mw.value().clamp(0, 127) as u8,
-            pc: self.pc.value().clamp(0, 127) as u8,
-            release: self.release.value().clamp(0, 127) as u8,
-            resonance: self.resonance.value().clamp(0, 127) as u8,
-            vol: self.vol.value().clamp(0, 127) as u8,
         }
     }
 }
 
 struct ParamsSnapshot {
-    attack: u8,
-    ch: u8,
-    cutoff: u8,
-    decay: u8,
     expr: u8,
-    lsb: u8,
-    msb: u8,
     mw: u8,
-    pc: u8,
-    release: u8,
-    resonance: u8,
-    vol: u8,
 }
 
 impl ParamsSnapshot {
     fn create_cc(&self, timing: u32, cc: u8, value: u8) -> NoteEvent<()> {
         NoteEvent::MidiCC {
             timing,
-            channel: self.ch,
+            channel: 0,
             cc,
             value: value as f32 / 127.0,
         }
     }
 
-    fn create_pc(&self) -> NoteEvent<()> {
-        NoteEvent::MidiProgramChange {
-            timing: 1,
-            channel: self.ch,
-            program: self.pc,
-        }
-    }
-
-    fn send(&self, old: Option<&ParamsSnapshot>, context: &mut impl ProcessContext<ProgramChange>) {
-        let old = old.filter(|old| old.ch == self.ch);
-
-        // we must handle bank select with program change
-        if old.map_or(true, |old| {
-            old.msb != self.msb || old.lsb != self.lsb || old.pc != self.pc
-        }) {
-            context.send_event(self.create_cc(0, BANK_SELECT_MSB, self.msb));
-            context.send_event(self.create_cc(0, BANK_SELECT_LSB, self.lsb));
-            context.send_event(self.create_pc());
-        }
-
-        if old.map_or(true, |old| old.attack != self.attack) {
-            context.send_event(self.create_cc(2, SOUND_CONTROLLER_4, self.attack));
-        }
-
-        if old.map_or(true, |old| old.cutoff != self.cutoff) {
-            context.send_event(self.create_cc(2, SOUND_CONTROLLER_5, self.cutoff));
-        }
-
-        if old.map_or(true, |old| old.decay != self.decay) {
-            context.send_event(self.create_cc(2, GENERAL_PURPOSE_CONTROLLER_5_MSB, self.decay));
-        }
-
+    fn send(
+        &self,
+        old: Option<&ParamsSnapshot>,
+        context: &mut impl ProcessContext<SeemlessSwitch>,
+    ) {
         if old.map_or(true, |old| old.expr != self.expr) {
             context.send_event(self.create_cc(2, EXPRESSION_CONTROLLER_MSB, self.expr));
         }
@@ -574,47 +438,35 @@ impl ParamsSnapshot {
             context.send_event(self.create_cc(2, MODULATION_MSB, self.mw));
         }
 
-        if old.map_or(true, |old| old.release != self.release) {
-            context.send_event(self.create_cc(2, SOUND_CONTROLLER_3, self.release));
-        }
-
-        if old.map_or(true, |old| old.resonance != self.resonance) {
-            context.send_event(self.create_cc(2, SOUND_CONTROLLER_2, self.resonance));
-        }
-
-        if old.map_or(true, |old| old.vol != self.vol) {
-            context.send_event(self.create_cc(2, MAIN_VOLUME_MSB, self.vol));
-        }
-
         if old.is_none() {
             context.send_event(self.create_cc(2, DAMPER_PEDAL, 0));
         }
     }
 }
 
-fn damper_off(ctx: &mut impl ProcessContext<ProgramChange>, channel: u8) {
+fn damper_off(ctx: &mut impl ProcessContext<SeemlessSwitch>) {
     ctx.send_event(NoteEvent::MidiCC {
         timing: 0,
-        channel,
+        channel: 0,
         cc: DAMPER_PEDAL,
         value: 0.0,
     })
 }
 
-impl ClapPlugin for ProgramChange {
-    const CLAP_ID: &'static str = "com.moist-plugins-gmbh.program-change";
+impl ClapPlugin for SeemlessSwitch {
+    const CLAP_ID: &'static str = "com.moist-plugins-gmbh.seemless-switch";
     const CLAP_DESCRIPTION: Option<&'static str> =
-        Some("Send program change when toggle active, keep sound until note off.");
+        Some("Hold notes until release even if inactive, keep sound until note off.");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::NoteEffect, ClapFeature::Utility];
 }
 
-impl Vst3Plugin for ProgramChange {
-    const VST3_CLASS_ID: [u8; 16] = *b"ProgramChn202312";
+impl Vst3Plugin for SeemlessSwitch {
+    const VST3_CLASS_ID: [u8; 16] = *b"SeemlessSw202312";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
         &[Vst3SubCategory::Instrument, Vst3SubCategory::Tools];
 }
 
-nih_export_clap!(ProgramChange);
-nih_export_vst3!(ProgramChange);
+nih_export_clap!(SeemlessSwitch);
+nih_export_vst3!(SeemlessSwitch);
