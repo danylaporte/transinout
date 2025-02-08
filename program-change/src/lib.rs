@@ -157,11 +157,13 @@ impl Plugin for ProgramChange {
                             });
                         }
                         NoteEvent::MidiPitchBend { timing, value, .. } => {
-                            ctx.send_event(NoteEvent::MidiPitchBend {
-                                timing,
-                                channel,
-                                value,
-                            });
+                            if self.params.allow_pitch_bend.value() {
+                                ctx.send_event(NoteEvent::MidiPitchBend {
+                                    timing,
+                                    channel,
+                                    value,
+                                });
+                            }
                         }
                         NoteEvent::MidiProgramChange { .. } => {}
                         NoteEvent::NoteOff {
@@ -429,6 +431,9 @@ struct ProgramChangeParams {
     #[id = "active"]
     active: BoolParam,
 
+    #[id = "apb"]
+    allow_pitch_bend: BoolParam,
+
     #[id = "attack"]
     attack: IntParam,
 
@@ -470,6 +475,7 @@ impl Default for ProgramChangeParams {
     fn default() -> Self {
         Self {
             active: BoolParam::new("Active", true),
+            allow_pitch_bend: BoolParam::new("Allow Pitch Bend", true),
             attack: IntParam::new("Attack", 64, IntRange::Linear { min: 0, max: 127 }),
             ch: IntParam::new("Channel", 1, IntRange::Linear { min: 1, max: 16 }),
             cutoff: IntParam::new("Cutoff", 64, IntRange::Linear { min: 0, max: 127 }),

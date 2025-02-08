@@ -135,11 +135,13 @@ impl Plugin for SeemlessSwitch {
                             });
                         }
                         NoteEvent::MidiPitchBend { timing, value, .. } => {
-                            ctx.send_event(NoteEvent::MidiPitchBend {
-                                timing,
-                                channel: 0,
-                                value,
-                            });
+                            if self.params.allow_pitch_bend.value() {
+                                ctx.send_event(NoteEvent::MidiPitchBend {
+                                    timing,
+                                    channel: 0,
+                                    value,
+                                });
+                            }
                         }
                         NoteEvent::MidiProgramChange { .. } => {}
                         NoteEvent::NoteOff {
@@ -384,6 +386,9 @@ struct SeemlessSwitchParams {
     #[id = "active"]
     active: BoolParam,
 
+    #[id = "apb"]
+    allow_pitch_bend: BoolParam,
+
     #[id = "expr"]
     expr: IntParam,
 
@@ -395,6 +400,7 @@ impl Default for SeemlessSwitchParams {
     fn default() -> Self {
         Self {
             active: BoolParam::new("Active", true),
+            allow_pitch_bend: BoolParam::new("Allow Pitch Bend", true),
             expr: IntParam::new("Expresion", 127, IntRange::Linear { min: 0, max: 127 }),
             mw: IntParam::new("Mod Wheel", 0, IntRange::Linear { min: 0, max: 127 }),
         }
