@@ -61,14 +61,23 @@ impl Plugin for SeemlessSwitch {
                 snapshot.send(None, ctx);
 
                 InternalState::On {
+                    damper: Default::default(),
                     notes: Default::default(),
                     snapshot,
                 }
             }
 
             (
-                InternalState::On { notes, snapshot }
-                | InternalState::SeamlessSwitch { notes, snapshot },
+                InternalState::On {
+                    damper,
+                    notes,
+                    snapshot,
+                }
+                | InternalState::SeamlessSwitch {
+                    damper,
+                    notes,
+                    snapshot,
+                },
                 ON,
             ) => {
                 let new = self.params.snapshot();
@@ -76,29 +85,40 @@ impl Plugin for SeemlessSwitch {
                 new.send(Some(&snapshot), ctx);
 
                 InternalState::On {
+                    damper,
                     notes,
                     snapshot: new,
                 }
             }
 
             (
-                InternalState::On { notes, snapshot }
-                | InternalState::SeamlessSwitch { notes, snapshot },
+                InternalState::On {
+                    damper,
+                    notes,
+                    snapshot,
+                }
+                | InternalState::SeamlessSwitch {
+                    damper,
+                    notes,
+                    snapshot,
+                },
                 OFF,
             ) => {
-                damper_off(ctx);
-
-                if notes.is_all_off() {
+                if notes.is_all_off() && damper.is_off() {
                     InternalState::Off
                 } else {
-                    InternalState::SeamlessSwitch { notes, snapshot }
+                    InternalState::SeamlessSwitch {
+                        damper,
+                        notes,
+                        snapshot,
+                    }
                 }
             }
         };
 
         match &mut self.state {
             InternalState::Off => {}
-            InternalState::On { notes, .. } => {
+            InternalState::On { damper, notes, .. } => {
                 while let Some(event) = ctx.next_event() {
                     match event {
                         NoteEvent::Choke {
@@ -118,6 +138,13 @@ impl Plugin for SeemlessSwitch {
                         NoteEvent::MidiCC {
                             timing, cc, value, ..
                         } => {
+                            if cc == DAMPER_PEDAL {
+                                if value >= 0.5 {
+                                    damper.set_on();
+                                } else {
+                                    damper.set_off();
+                                }
+                            }
                             ctx.send_event(NoteEvent::MidiCC {
                                 timing,
                                 cc,
@@ -298,7 +325,7 @@ impl Plugin for SeemlessSwitch {
                     }
                 }
             }
-            InternalState::SeamlessSwitch { notes, .. } => {
+            InternalState::SeamlessSwitch { damper, notes, .. } => {
                 while let Some(event) = ctx.next_event() {
                     match event {
                         NoteEvent::Choke {
@@ -308,12 +335,28 @@ impl Plugin for SeemlessSwitch {
                             ..
                         } => {
                             notes.set_off(note);
+                            damper.set_off();
+
                             ctx.send_event(NoteEvent::Choke {
                                 timing,
                                 voice_id,
                                 channel: 0,
                                 note,
                             });
+                        }
+                        NoteEvent::MidiCC {
+                            timing, cc, value, ..
+                        } => {
+                            if cc == DAMPER_PEDAL && value < 0.5 {
+                                damper.set_off();
+
+                                ctx.send_event(NoteEvent::MidiCC {
+                                    timing,
+                                    channel: 0,
+                                    cc,
+                                    value: 0.0,
+                                });
+                            }
                         }
                         NoteEvent::NoteOff {
                             timing,
@@ -333,6 +376,10 @@ impl Plugin for SeemlessSwitch {
                         }
                         _ => {}
                     }
+                }
+
+                if damper.is_off() && notes.is_all_off() {
+                    self.state = InternalState::Off;
                 }
             }
         }
@@ -365,10 +412,12 @@ fn note_mask(note: u8) -> u128 {
 
 enum InternalState {
     On {
+        damper: DamperState,
         notes: NotesState,
         snapshot: ParamsSnapshot,
     },
     SeamlessSwitch {
+        damper: DamperState,
         notes: NotesState,
         snapshot: ParamsSnapshot,
     },
@@ -378,6 +427,23 @@ enum InternalState {
 impl Default for InternalState {
     fn default() -> Self {
         Self::Off
+    }
+}
+
+#[derive(Default)]
+struct DamperState(bool);
+
+impl DamperState {
+    fn is_off(&self) -> bool {
+        !self.0
+    }
+
+    fn set_off(&mut self) {
+        self.0 = false;
+    }
+
+    fn set_on(&mut self) {
+        self.0 = true;
     }
 }
 
@@ -448,15 +514,6 @@ impl ParamsSnapshot {
             context.send_event(self.create_cc(2, DAMPER_PEDAL, 0));
         }
     }
-}
-
-fn damper_off(ctx: &mut impl ProcessContext<SeemlessSwitch>) {
-    ctx.send_event(NoteEvent::MidiCC {
-        timing: 0,
-        channel: 0,
-        cc: DAMPER_PEDAL,
-        value: 0.0,
-    })
 }
 
 impl ClapPlugin for SeemlessSwitch {
