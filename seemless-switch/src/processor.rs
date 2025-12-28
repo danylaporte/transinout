@@ -1,7 +1,7 @@
+use crate::SeemlessSwitch;
 use crate::params::SeemlessSwitchParams;
 use crate::state::{DamperState, InternalState, NotesState};
-use crate::SeemlessSwitch;
-use nih_plug::midi::control_change::DAMPER_PEDAL;
+use nih_plug::midi::control_change::{DAMPER_PEDAL, MODULATION_MSB};
 use nih_plug::prelude::*;
 use std::mem::take;
 
@@ -124,15 +124,34 @@ fn process_event_on(
         }
 
         NoteEvent::MidiCC {
-            timing, cc, value, ..
+            timing,
+            cc,
+            mut value,
+            ..
         } => {
-            if cc == DAMPER_PEDAL {
-                if value >= 0.5 {
-                    damper.set_on();
-                } else {
-                    damper.set_off();
+            match cc {
+                DAMPER_PEDAL => {
+                    if params.allow_sustain.value() {
+                        if value >= 0.5 {
+                            damper.set_on();
+                        } else {
+                            damper.set_off();
+                        }
+                    } else if damper.is_off() {
+                        return;
+                    } else {
+                        damper.set_off();
+                        value = 0.0;
+                    }
                 }
+                MODULATION_MSB => {
+                    if !params.allow_mod_wheel.value() {
+                        return;
+                    }
+                }
+                _ => {}
             }
+
             ctx.send_event(NoteEvent::MidiCC {
                 timing,
                 cc,

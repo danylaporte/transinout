@@ -1,19 +1,15 @@
-use nih_plug::prelude::*;
-use nih_plug_vizia::ViziaState;
-use std::sync::Arc;
-
-mod editor;
 mod params;
 mod processor;
 mod state;
 
+use nih_plug::prelude::*;
 use params::SeemlessSwitchParams;
 use state::InternalState;
+use std::sync::Arc;
 
 pub struct SeemlessSwitch {
     state: InternalState,
     params: Arc<SeemlessSwitchParams>,
-    editor_state: Arc<nih_plug_vizia::ViziaState>,
 }
 
 impl Default for SeemlessSwitch {
@@ -21,7 +17,6 @@ impl Default for SeemlessSwitch {
         Self {
             params: Arc::new(SeemlessSwitchParams::default()),
             state: InternalState::default(),
-            editor_state: ViziaState::new(|| (300, 250)),
         }
     }
 }
@@ -40,11 +35,6 @@ impl Plugin for SeemlessSwitch {
 
     type SysExMessage = ();
     type BackgroundTask = ();
-
-    fn editor(&mut self, _async_executor: AsyncExecutor<Self>) -> Option<Box<dyn Editor>> {
-        editor::create_editor(self.params.clone(), self.editor_state.clone())
-    }
-
     fn params(&self) -> Arc<dyn Params> {
         self.params.clone()
     }
